@@ -1,15 +1,8 @@
 package owp.nwm.cwms;
 
 import java.time.Instant;
-import java.util.Map;
-import java.util.TreeMap;
 
-public abstract class timeseries<T>
+public abstract class timeseries<T extends Number>
 {
-    Map<Instant, T> timevalue = new TreeMap<>();
-
-    public T getValueAtTime(final Instant k)
-    {
-        return timevalue.get(k);
-    }
+    public abstract T getValueAtTime(final Instant k);
 }

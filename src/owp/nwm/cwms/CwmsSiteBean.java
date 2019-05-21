@@ -5,6 +5,8 @@ import com.opencsv.bean.CsvBindByName;
 public class CwmsSiteBean
 {
     @CsvBindByName
+    private String USACE_site_index;
+    @CsvBindByName
     private String office;
     @CsvBindByName
     private String CWMS_ID;
@@ -94,5 +96,10 @@ public class CwmsSiteBean
     public String getName_1()
     {
         return name_1;
+    }
+
+    public String getSiteIndex()
+    {
+        return USACE_site_index;
     }
 }

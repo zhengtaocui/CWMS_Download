@@ -12,10 +12,14 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.AbstractMap;
+import java.util.AbstractMap.SimpleEntry;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.StringTokenizer;
+import java.util.TreeMap;
 import java.util.stream.Collectors;
 
 import javax.xml.parsers.DocumentBuilder;
@@ -29,7 +33,7 @@ import org.xml.sax.SAXException;
 
 public class CwmsDownloadManager extends DownloadManager
 {
-    private final static String CWMS_OUTFLOW_SITES = "./CWMS_outflow_sites_263.csv";
+    private final static String CWMS_OUTFLOW_SITES = "./CWMS_outflow_sites_263_index.csv";
 
     private final static String urlformat =
                                           "http://cwms-data.usace.army.mil/cwms-data/timeseries?office=%s&name=%s&format=%s&begin=%s&end=%s&timezone=UTC";
@@ -46,6 +50,11 @@ public class CwmsDownloadManager extends DownloadManager
         {
             throw e;
         }
+    }
+
+    public CwmsOutflowSites getSites()
+    {
+        return sites;
     }
 
     public List<String> getURLs(final Instant begin, final Instant end, final String format)
@@ -300,6 +309,134 @@ public class CwmsDownloadManager extends DownloadManager
                 }
             }
         }
+    }
+
+    public CwmsTimeSeries<Float> parseXML(final InputStream in, final String siteIndex)
+    {
+        CwmsTimeSeries<Float> ts = null;
+        try
+        {
+            final DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+            DocumentBuilder builder;
+            builder = factory.newDocumentBuilder();
+            org.w3c.dom.Document document;
+            document = builder.parse(in);
+            document.getDocumentElement().normalize();
+            System.out.println("Root element: " + document.getDocumentElement().getNodeName());
+
+            final NodeList nList = document.getDocumentElement().getElementsByTagName("time-series");
+
+            System.out.println("length = " + nList.getLength());
+
+            final Node nNode = nList.item(0);
+            final Element e = (Element)nNode;
+            final String office = e.getElementsByTagName("office").item(0).getTextContent();
+            final String CWMS_ID = e.getElementsByTagName("name").item(0).getTextContent().split("\\.")[0];
+
+            NodeList tsList = e.getElementsByTagName("irregular-interval-values");
+            if(tsList.getLength() > 0)
+            {
+                final Map<Instant, AbstractMap.SimpleEntry<Float, Float>> timeValuequality = new TreeMap<>();
+
+                final Node tsNode = tsList.item(0);
+                final String unit = tsNode.getAttributes().getNamedItem("unit").getNodeValue();
+                final List<String> timeValueQuality =
+                                                    Collections.list(new StringTokenizer(tsNode.getTextContent(), "\n"))
+                                                               .stream()
+                                                               .map(x -> (String)x)
+                                                               .collect(Collectors.toList());
+                for(final String s: timeValueQuality)
+                {
+                    final List<String> tokens = Collections.list(new StringTokenizer(s))
+                                                           .stream()
+                                                           .map(x -> (String)x)
+
+                                                           .collect(Collectors.toList());
+                    System.out.println(tokens.toString());
+                    try
+                    {
+                        timeValuequality.put(Instant.parse(tokens.get(0)),
+                                             new AbstractMap.SimpleEntry<Float, Float>(Float.parseFloat(tokens.get(1)),
+                                                                                       Float.parseFloat(tokens.get(2))));
+                    }
+                    catch(final NumberFormatException e1)
+                    {
+                        e1.printStackTrace();
+                    }
+                }
+                ts = new IrregularTimeseries(office, CWMS_ID, null, unit, siteIndex, timeValuequality);
+            }
+            else
+            {
+                tsList = e.getElementsByTagName("regular-interval-values");
+
+                if(tsList.getLength() > 0)
+                {
+                    final Node tsNode = tsList.item(0);
+                    final String intervalString = tsNode.getAttributes().getNamedItem("interval").getNodeValue();
+                    final int segmentCount = Integer.parseInt(tsNode.getAttributes()
+                                                                    .getNamedItem("segment-count")
+                                                                    .getNodeValue());
+                    final String unit = tsNode.getAttributes().getNamedItem("unit").getNodeValue();
+                    final Duration interval = Duration.parse(intervalString);
+
+                    final NodeList segments = ((Element)tsNode).getElementsByTagName("segment");
+                    final List<List<AbstractMap.SimpleEntry<Float, Float>>> segs =
+                                                                                 new ArrayList<List<AbstractMap.SimpleEntry<Float, Float>>>();
+                    final List<AbstractMap.SimpleEntry<Instant, Instant>> startAndEnd =
+                                                                                      new ArrayList<AbstractMap.SimpleEntry<Instant, Instant>>();
+
+                    for(int seg = 0; seg < segments.getLength(); seg++)
+                    {
+                        final String firstTimeString =
+                                                     segments.item(seg)
+                                                             .getAttributes()
+                                                             .getNamedItem("first-time")
+                                                             .getNodeValue();
+                        final Instant firstTime = Instant.parse(firstTimeString);
+
+                        final String order = segments.item(seg).getAttributes().getNamedItem("position").getNodeValue();
+
+                        final List<String> valueQuality = Collections
+                                                                     .list(new StringTokenizer(segments.item(seg)
+                                                                                                       .getTextContent(),
+                                                                                               "\n"))
+                                                                     .stream()
+                                                                     .map(x -> (String)x)
+                                                                     .collect(Collectors.toList());
+                        Instant currentTime = firstTime;
+
+                        final List<AbstractMap.SimpleEntry<Float, Float>> seg1 = new ArrayList<>();
+                        for(final String s: valueQuality)
+                        {
+                            final List<String> tokens = Collections.list(new StringTokenizer(s))
+                                                                   .stream()
+                                                                   .map(x -> (String)x)
+                                                                   .collect(Collectors.toList());
+
+                            seg1.add(new AbstractMap.SimpleEntry<Float, Float>(Float.parseFloat(tokens.get(0)),
+                                                                               Float.parseFloat(tokens.get(1))));
+
+                            currentTime = currentTime.plus(interval);
+                        }
+                        segs.add(seg1);
+
+                        startAndEnd.add(new SimpleEntry<Instant, Instant>(firstTime, currentTime));
+                    }
+                    ts = new RegularTimeseries(office, CWMS_ID, null, unit, siteIndex, segs, interval, startAndEnd);
+                }
+
+            }
+
+        }
+        catch(ParserConfigurationException | SAXException | IOException e1)
+        {
+            // TODO Auto-generated catch block
+            e1.printStackTrace();
+            ts = null;
+        }
+        return ts;
+
     }
 
     public void downloadSites(final Instant begin, final Instant end, final String format)

@@ -37,9 +37,9 @@ public class CwmsOutflowSites
             {
                 final CwmsSiteBean cwmsSiteBean = cwmsSiteBeanIter.next();
                 sites.add(cwmsSiteBean);
-                System.out.println("office : " + cwmsSiteBean.getOffice());
-                System.out.println("CWMS_ID : " + cwmsSiteBean.getCWMS_ID());
-                System.out.println("name_1 : " + cwmsSiteBean.getName_1());
+                //     System.out.println("office : " + cwmsSiteBean.getOffice());
+                //     System.out.println("CWMS_ID : " + cwmsSiteBean.getCWMS_ID());
+                //     System.out.println("name_1 : " + cwmsSiteBean.getName_1());
             }
 
         }
